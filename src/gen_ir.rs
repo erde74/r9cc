@@ -26,7 +26,7 @@ lazy_static! {
 
 fn add(op: IROp, lhs: Option<usize>, rhs: Option<usize>) {
     let ir = IR::new(op, lhs, rhs);
-    CODE.lock().unwrap().push(ir.clone());
+    CODE.lock().unwrap().push(ir);
 }
 
 #[derive(Clone, Debug)]
@@ -62,7 +62,7 @@ impl Function {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum IROp {
     Add,
     AddImm,
@@ -177,11 +177,11 @@ fn store_arg(ty: &Type, bpoff: Option<usize>, argreg: Option<usize>) {
 //
 // > This function evaluates a given node as an lvalue.
 
-fn gen_lval(node: Box<Node>) -> Option<usize> {
+fn gen_lval(node: Node) -> Option<usize> {
     match node.op {
-        NodeType::Deref(expr) => gen_expr(expr),
+        NodeType::Deref(expr) => gen_expr(*expr),
         NodeType::Dot(ref expr, _, ref offset) => {
-            let r = gen_lval(expr.clone());
+            let r = gen_lval(*expr.clone());
             add(IROp::AddImm, r, Some(*offset));
             r
         }
@@ -201,7 +201,7 @@ fn gen_lval(node: Box<Node>) -> Option<usize> {
     }
 }
 
-fn gen_binop(ty: IROp, lhs: Box<Node>, rhs: Box<Node>) -> Option<usize> {
+fn gen_binop(ty: IROp, lhs: Node, rhs: Node) -> Option<usize> {
     let r1 = gen_expr(lhs);
     let r2 = gen_expr(rhs);
     add(ty, r1, r2);
@@ -216,7 +216,7 @@ fn get_inc_scale(ty: &Type) -> usize {
     }
 }
 
-fn gen_pre_inc(ty: &Type, expr: Box<Node>, num: i32) -> i32 {
+fn gen_pre_inc(ty: &Type, expr: Node, num: i32) -> i32 {
     let addr = gen_lval(expr);
     let val = *NUM_REGS.lock().unwrap();
     *NUM_REGS.lock().unwrap() += 1;
@@ -231,7 +231,7 @@ fn gen_pre_inc(ty: &Type, expr: Box<Node>, num: i32) -> i32 {
     val as i32
 }
 
-fn gen_post_inc(ty: &Type, expr: Box<Node>, num: i32) -> i32 {
+fn gen_post_inc(ty: &Type, expr: Node, num: i32) -> i32 {
     let val = gen_pre_inc(ty, expr, num);
     add(
         IROp::SubImm,
@@ -258,7 +258,7 @@ fn to_assign_op(op: &TokenType) -> IROp {
     }
 }
 
-fn gen_assign_op(op: &TokenType, ty: &Type, lhs: Box<Node>, rhs: Box<Node>) -> Option<usize> {
+fn gen_assign_op(op: &TokenType, ty: &Type, lhs: Node, rhs: Node) -> Option<usize> {
     let src = gen_expr(rhs);
     let dst = gen_lval(lhs);
     let val = Some(*NUM_REGS.lock().unwrap());
@@ -272,8 +272,7 @@ fn gen_assign_op(op: &TokenType, ty: &Type, lhs: Box<Node>, rhs: Box<Node>) -> O
     val
 }
 
-fn gen_expr(node: Box<Node>) -> Option<usize> {
-    let node = *node;
+fn gen_expr(node: Node) -> Option<usize> {
     match node.op {
         NodeType::Num(val) => {
             let r = Some(*NUM_REGS.lock().unwrap());
@@ -282,14 +281,14 @@ fn gen_expr(node: Box<Node>) -> Option<usize> {
             r
         }
         NodeType::Lvar(_) | NodeType::Dot(_, _, _) | NodeType::Gvar(_, _, _) => {
-            let r = gen_lval(Box::new(node.clone()));
+            let r = gen_lval(node.clone());
             load(&node.ty, r, r);
             r
         }
         NodeType::Call(name, args) => {
             let mut args_ir: [usize; 6] = [0; 6];
             for i in 0..args.len() {
-                args_ir[i] = gen_expr(Box::new(args[i].clone())).unwrap();
+                args_ir[i] = gen_expr(args[i].clone()).unwrap();
             }
 
             let r = Some(*NUM_REGS.lock().unwrap());
@@ -302,9 +301,9 @@ fn gen_expr(node: Box<Node>) -> Option<usize> {
             }
             r
         }
-        NodeType::Addr(expr) => gen_lval(expr),
+        NodeType::Addr(expr) => gen_lval(*expr),
         NodeType::Deref(expr) => {
-            let r = gen_expr(expr);
+            let r = gen_expr(*expr);
             load(&node.ty, r, r);
             r
         }
@@ -328,21 +327,21 @@ fn gen_expr(node: Box<Node>) -> Option<usize> {
             use self::TokenType::*;
             match op {
                 Equal => {
-                    let rhs = gen_expr(rhs);
-                    let lhs = gen_lval(lhs);
+                    let rhs = gen_expr(*rhs);
+                    let lhs = gen_lval(*lhs);
                     store(&node.ty, lhs, rhs);
                     kill(lhs);
                     rhs
                 }
-                Plus => gen_binop(IROp::Add, lhs, rhs),
-                Minus => gen_binop(IROp::Sub, lhs, rhs),
+                Plus => gen_binop(IROp::Add, *lhs, *rhs),
+                Minus => gen_binop(IROp::Sub, *lhs, *rhs),
                 Logand => {
                     let x = Some(*NLABEL.lock().unwrap());
                     *NLABEL.lock().unwrap() += 1;
 
-                    let r1 = gen_expr(lhs);
+                    let r1 = gen_expr(*lhs);
                     add(IROp::Unless, r1, x);
-                    let r2 = gen_expr(rhs);
+                    let r2 = gen_expr(*rhs);
                     add(IROp::Mov, r1, r2);
                     kill(r2);
                     add(IROp::Unless, r1, x);
@@ -356,13 +355,13 @@ fn gen_expr(node: Box<Node>) -> Option<usize> {
                     let y = Some(*NLABEL.lock().unwrap());
                     *NLABEL.lock().unwrap() += 1;
 
-                    let r1 = gen_expr(lhs);
+                    let r1 = gen_expr(*lhs);
                     add(IROp::Unless, r1, x);
                     add(IROp::Imm, r1, Some(1));
                     jmp(y);
                     label(x);
 
-                    let r2 = gen_expr(rhs);
+                    let r2 = gen_expr(*rhs);
                     add(IROp::Mov, r1, r2);
                     kill(r2);
                     add(IROp::Unless, r1, y);
@@ -371,30 +370,30 @@ fn gen_expr(node: Box<Node>) -> Option<usize> {
                     r1
                 }
                 MulEQ | DivEQ | ModEQ | AddEQ | SubEQ | ShlEQ | ShrEQ | BitandEQ | XorEQ
-                | BitorEQ => gen_assign_op(&op, &node.ty, lhs, rhs),
-                EQ => gen_binop(IROp::EQ, lhs, rhs),
-                NE => gen_binop(IROp::NE, lhs, rhs),
-                LE => gen_binop(IROp::LE, lhs, rhs),
-                And => gen_binop(IROp::AND, lhs, rhs),
-                VerticalBar => gen_binop(IROp::OR, lhs, rhs),
-                Hat => gen_binop(IROp::XOR, lhs, rhs),
-                SHL => gen_binop(IROp::SHL, lhs, rhs),
-                SHR => gen_binop(IROp::SHR, lhs, rhs),
-                Mod => gen_binop(IROp::Mod, lhs, rhs),
+                | BitorEQ => gen_assign_op(&op, &node.ty, *lhs, *rhs),
+                EQ => gen_binop(IROp::EQ, *lhs, *rhs),
+                NE => gen_binop(IROp::NE, *lhs, *rhs),
+                LE => gen_binop(IROp::LE, *lhs, *rhs),
+                And => gen_binop(IROp::AND, *lhs, *rhs),
+                VerticalBar => gen_binop(IROp::OR, *lhs, *rhs),
+                Hat => gen_binop(IROp::XOR, *lhs, *rhs),
+                SHL => gen_binop(IROp::SHL, *lhs, *rhs),
+                SHR => gen_binop(IROp::SHR, *lhs, *rhs),
+                Mod => gen_binop(IROp::Mod, *lhs, *rhs),
                 Comma => {
-                    kill(gen_expr(lhs));
-                    gen_expr(rhs)
+                    kill(gen_expr(*lhs));
+                    gen_expr(*rhs)
                 }
-                _ => gen_binop(IROp::from(op), lhs, rhs),
+                _ => gen_binop(IROp::from(op), *lhs, *rhs),
             }
         }
         NodeType::Neg(expr) => {
-            let r = gen_expr(expr);
+            let r = gen_expr(*expr);
             add(IROp::Neg, r, None);
             r
         }
-        NodeType::PostInc(expr) => Some(gen_post_inc(&node.ty, expr, 1) as usize),
-        NodeType::PostDec(expr) => Some(gen_post_inc(&node.ty, expr, -1) as usize),
+        NodeType::PostInc(expr) => Some(gen_post_inc(&node.ty, *expr, 1) as usize),
+        NodeType::PostDec(expr) => Some(gen_post_inc(&node.ty, *expr, -1) as usize),
         NodeType::Ternary(cond, then, els) => {
             //      cond then els  then
             // return 1 ? 3 : 5; => 3
@@ -402,23 +401,23 @@ fn gen_expr(node: Box<Node>) -> Option<usize> {
             *NLABEL.lock().unwrap() += 1;
             let y = Some(*NLABEL.lock().unwrap());
             *NLABEL.lock().unwrap() += 1;
-            let r = gen_expr(cond);
+            let r = gen_expr(*cond);
 
             add(IROp::Unless, r, x);
-            let r2 = gen_expr(then);
+            let r2 = gen_expr(*then);
             add(IROp::Mov, r, r2);
             kill(r2);
             jmp(y);
 
             label(x);
-            let r3 = gen_expr(els);
+            let r3 = gen_expr(*els);
             add(IROp::Mov, r, r3);
             kill(r3);
             label(y);
             r
         }
         NodeType::Exclamation(expr) => {
-            let lhs = gen_expr(expr);
+            let lhs = gen_expr(*expr);
             let rhs = Some(*NUM_REGS.lock().unwrap());
             *NUM_REGS.lock().unwrap() += 1;
             add(IROp::Imm, rhs, Some(0));
@@ -432,10 +431,10 @@ fn gen_expr(node: Box<Node>) -> Option<usize> {
 
 fn gen_stmt(node: Node) {
     match node.op {
-        NodeType::Null => return,
+        NodeType::Null => (),
         NodeType::Vardef(_, init_may, Scope::Local(offset)) => {
             if let Some(init) = init_may {
-                let rhs = gen_expr(init);
+                let rhs = gen_expr(*init);
                 let lhs = Some(*NUM_REGS.lock().unwrap());
                 *NUM_REGS.lock().unwrap() += 1;
                 add(IROp::Bprel, lhs, Some(offset));
@@ -443,7 +442,6 @@ fn gen_stmt(node: Node) {
                 kill(lhs);
                 kill(rhs);
             }
-            return;
         }
         NodeType::If(cond, then, els_may) => {
             if let Some(els) = els_may {
@@ -451,7 +449,7 @@ fn gen_stmt(node: Node) {
                 *NLABEL.lock().unwrap() += 1;
                 let y = Some(*NLABEL.lock().unwrap());
                 *NLABEL.lock().unwrap() += 1;
-                let r = gen_expr(cond.clone());
+                let r = gen_expr(*cond.clone());
                 add(IROp::Unless, r, x);
                 kill(r);
                 gen_stmt(*then.clone());
@@ -459,12 +457,11 @@ fn gen_stmt(node: Node) {
                 label(x);
                 gen_stmt(*els);
                 label(y);
-                return;
             }
 
             let x = Some(*NLABEL.lock().unwrap());
             *NLABEL.lock().unwrap() += 1;
-            let r = gen_expr(cond);
+            let r = gen_expr(*cond);
             add(IROp::Unless, r, x);
             kill(r);
             gen_stmt(*then);
@@ -482,7 +479,7 @@ fn gen_stmt(node: Node) {
             gen_stmt(*init);
             label(x);
             if !cond.is_null() {
-                let r2 = gen_expr(cond);
+                let r2 = gen_expr(*cond);
                 add(IROp::Unless, r2, y);
                 kill(r2);
             }
@@ -503,7 +500,7 @@ fn gen_stmt(node: Node) {
             *NLABEL.lock().unwrap() += 1;
             label(x);
             gen_stmt(*body);
-            let r = gen_expr(cond);
+            let r = gen_expr(*cond);
             add(IROp::If, r, x);
             kill(r);
             label(Some(*BREAK_LABEL.lock().unwrap()));
@@ -517,7 +514,7 @@ fn gen_stmt(node: Node) {
             jmp(Some(break_label));
         }
         NodeType::Return(expr) => {
-            let r = gen_expr(expr);
+            let r = gen_expr(*expr);
 
             // Statement expression (GNU extension)
             if *RETURN_LABEL.lock().unwrap() != 0 {
@@ -531,7 +528,7 @@ fn gen_stmt(node: Node) {
             kill(r);
         }
         NodeType::ExprStmt(expr) => {
-            let r = gen_expr(expr);
+            let r = gen_expr(*expr);
             kill(r);
         }
         NodeType::VecStmt(stmts) | NodeType::CompStmt(stmts) => {

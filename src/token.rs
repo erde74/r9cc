@@ -79,7 +79,7 @@ impl Token {
     }
 
     pub fn bad_token(&self, msg: &str) -> ! {
-        print_line(&*self.buf, &*self.filename, self.start);
+        print_line(&self.buf, &self.filename, self.start);
         panic!("{}", msg);
     }
 
@@ -161,7 +161,7 @@ impl Tokenizer {
     fn read_file(filename: &str) -> String {
         let mut input = String::new();
         let mut fp = io::stdin();
-        if filename != &"-".to_string() {
+        if filename != "-" {
             let mut fp = File::open(filename).expect("file not found");
             fp.read_to_string(&mut input)
                 .expect("something went wrong reading the file");
@@ -203,7 +203,7 @@ impl Tokenizer {
                     self.tokens.push(t);
                 }
                 CharacterType::Whitespace => self.pos += 1,
-                CharacterType::Alphabetic => self.ident(&keywords),
+                CharacterType::Alphabetic => self.ident(keywords),
                 CharacterType::Digit => self.number(),
 
                 CharacterType::NonAlphabetic('\'') => self.char_literal(),
@@ -344,7 +344,7 @@ impl Tokenizer {
 
             if c2 != &'\\' {
                 len += 1;
-                sb.push(c2.clone());
+                sb.push(*c2);
                 continue;
             }
 
@@ -353,7 +353,7 @@ impl Tokenizer {
             if let Some(esc) = Self::escaped(*c2) {
                 sb.push(esc);
             } else {
-                sb.push(c2.clone());
+                sb.push(*c2);
             }
             len += 1;
         }

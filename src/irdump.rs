@@ -88,11 +88,11 @@ impl fmt::Display for IR {
                     let mut sb: String = format!("  r{} = {}(", lhs, name);
                     for (i, arg) in args.iter().enumerate().take(nargs) {
                         if i != 0 {
-                            sb.push_str(&", ".to_string());
+                            sb.push_str(", ");
                         }
                         sb.push_str(&format!("r{}", *arg));
                     }
-                    sb.push_str(")");
+                    sb.push(')');
                     write!(f, "{}", sb)
                 }
                 _ => unreachable!(),

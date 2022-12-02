@@ -110,10 +110,10 @@ impl Node {
         Node::new(NodeType::Num(val))
     }
 
-    pub fn scale_ptr(node: Box<Node>, ty: &Type) -> Self {
+    pub fn scale_ptr(node: Node, ty: &Type) -> Self {
         match ty.ty {
             Ctype::Ptr(ref ptr_to) => {
-                Node::new_binop(TokenType::Mul, *node, Node::new_int(ptr_to.size as i32))
+                Node::new_binop(TokenType::Mul, node, Node::new_int(ptr_to.size as i32))
             }
             _ => panic!("expect ptr type"),
         }
@@ -128,10 +128,7 @@ impl Node {
     }
 
     pub fn is_null(&self) -> bool {
-        match self.op {
-            NodeType::Null => true,
-            _ => false,
-        }
+        matches!(self.op, NodeType::Null)
     }
 }
 
@@ -273,10 +270,10 @@ impl<'a> Parser<'a> {
         match t.ty {
             TokenType::Ident(ref name) => {
                 if let Some(ty) = self.find_typedef(name) {
-                    return Some(ty.clone());
+                    Some(ty)
                 } else {
                     self.pos -= 1;
-                    return None;
+                    None
                 }
             }
             TokenType::Int => Some(Type::int_ty()),
@@ -287,7 +284,7 @@ impl<'a> Parser<'a> {
                 let t = &self.tokens[self.pos];
                 if let TokenType::Ident(ref name) = t.ty {
                     self.pos += 1;
-                    tag_may = Some(name.clone())
+                    tag_may = Some(name.to_string())
                 }
 
                 let mut members = vec![];
@@ -300,10 +297,10 @@ impl<'a> Parser<'a> {
                 let mut ty_may: Option<Type> = None;
                 if let Some(ref tag) = tag_may {
                     if members.is_empty() {
-                        ty_may = self.find_tag(&tag);
+                        ty_may = self.find_tag(tag);
                     }
                 }
-                let mut ty = ty_may.unwrap_or(Type::new(Ctype::Struct(vec![]), 10));
+                let mut ty = ty_may.unwrap_or_else(|| Type::new(Ctype::Struct(vec![]), 10));
 
                 if !members.is_empty() {
                     Self::add_member(&mut ty, members);
@@ -653,9 +650,9 @@ impl<'a> Parser<'a> {
         Node::new(NodeType::VecStmt(init))
     }
 
-    fn update_ptr_to(&mut self, src: &mut Box<Type>, dst: Box<Type>) {
+    fn update_ptr_to(src: &mut Box<Type>, dst: Box<Type>) {
         match src.ty {
-            Ctype::Ptr(ref mut ptr_to) => self.update_ptr_to(ptr_to, dst),
+            Ctype::Ptr(ref mut ptr_to) => Self::update_ptr_to(ptr_to, dst),
             _ => *src = dst,
         }
     }
@@ -676,7 +673,7 @@ impl<'a> Parser<'a> {
 
         // Read the second half of type name (e.g. `[3][5]`).
         let ty = self.read_array(ty);
-        self.update_ptr_to(&mut node.ty, Box::new(ty));
+        Self::update_ptr_to(&mut node.ty, Box::new(ty));
 
         // Read an initializer.
         let init: Option<Box<Node>>;
@@ -743,9 +740,9 @@ impl<'a> Parser<'a> {
                 let node = self.declaration();
                 if let NodeType::Vardef(name, _, _) = node.op {
                     self.env.typedefs.insert(name, *node.ty);
-                    return Node::new(NodeType::Null);
+                    Node::new(NodeType::Null)
                 } else {
-                    unreachable!();
+                    unreachable!()
                 }
             }
             TokenType::If => {
@@ -894,7 +891,7 @@ impl<'a> Parser<'a> {
         self.expect(TokenType::Semicolon);
 
         if is_typedef {
-            self.env.typedefs.insert(name.clone(), ty.clone());
+            self.env.typedefs.insert(name, ty);
             return None;
         }
 

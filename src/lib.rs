@@ -24,7 +24,7 @@ macro_rules! matches(
 );
 
 // Token type
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum TokenType {
     Num(i32),            // Number literal
     Str(String, usize),  // String literal. (str, len)
@@ -95,7 +95,7 @@ pub enum TokenType {
 }
 
 // Character Kind
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum CharacterType {
     Whitespace, // ' '
     NewLine,    // ' \n'
@@ -191,6 +191,6 @@ impl Var {
     }
 
     fn new_global(ty: Box<Type>, name: String, data: String, len: usize, is_extern: bool) -> Self {
-        Var::new(ty, name.clone(), Scope::Global(data, len, is_extern))
+        Var::new(ty, name, Scope::Global(data, len, is_extern))
     }
 }

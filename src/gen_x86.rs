@@ -39,7 +39,7 @@ fn backslash_escape(s: String, len: usize) -> String {
                 sb.push('\\');
                 sb.push(esc);
             } else if c.is_ascii_graphic() || c == &' ' {
-                sb.push(c.clone());
+                sb.push(*c);
             } else {
                 sb.push_str(&format!("\\{:o}", *c as i8));
             }
